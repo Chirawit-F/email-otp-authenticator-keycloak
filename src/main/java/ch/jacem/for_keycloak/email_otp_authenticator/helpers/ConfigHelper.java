@@ -119,4 +119,52 @@ public class ConfigHelper {
             config.getConfig().get(key)
         );
     }
+
+    public static int getRefCodeLength(AuthenticatorConfigModel config) {
+        return ConfigHelper.getConfigIntValue(
+            config,
+            EmailOTPFormAuthenticatorFactory.SETTINGS_KEY_REF_CODE_LENGTH,
+            EmailOTPFormAuthenticatorFactory.SETTINGS_DEFAULT_VALUE_REF_CODE_LENGTH
+        );
+    }
+
+    public static int getRefCodeLength(AuthenticationFlowContext context) {
+        return ConfigHelper.getRefCodeLength(context.getAuthenticatorConfig());
+    }
+
+    public static int getRateLimitMaxRequests(AuthenticatorConfigModel config) {
+        return ConfigHelper.getConfigIntValue(
+            config,
+            EmailOTPFormAuthenticatorFactory.SETTINGS_KEY_RATE_LIMIT_MAX_REQUESTS,
+            EmailOTPFormAuthenticatorFactory.SETTINGS_DEFAULT_VALUE_RATE_LIMIT_MAX_REQUESTS
+        );
+    }
+
+    public static int getRateLimitMaxRequests(AuthenticationFlowContext context) {
+        return ConfigHelper.getRateLimitMaxRequests(context.getAuthenticatorConfig());
+    }
+
+    public static int getRateLimitWindowSeconds(AuthenticatorConfigModel config) {
+        return ConfigHelper.getConfigIntValue(
+            config,
+            EmailOTPFormAuthenticatorFactory.SETTINGS_KEY_RATE_LIMIT_WINDOW_SECONDS,
+            EmailOTPFormAuthenticatorFactory.SETTINGS_DEFAULT_VALUE_RATE_LIMIT_WINDOW_SECONDS
+        );
+    }
+
+    public static int getRateLimitWindowSeconds(AuthenticationFlowContext context) {
+        return ConfigHelper.getRateLimitWindowSeconds(context.getAuthenticatorConfig());
+    }
+
+    public static int getMaxInvalidAttempts(AuthenticatorConfigModel config) {
+        return ConfigHelper.getConfigIntValue(
+            config,
+            EmailOTPFormAuthenticatorFactory.SETTINGS_KEY_MAX_INVALID_ATTEMPTS,
+            EmailOTPFormAuthenticatorFactory.SETTINGS_DEFAULT_VALUE_MAX_INVALID_ATTEMPTS
+        );
+    }
+
+    public static int getMaxInvalidAttempts(AuthenticationFlowContext context) {
+        return ConfigHelper.getMaxInvalidAttempts(context.getAuthenticatorConfig());
+    }
 }
