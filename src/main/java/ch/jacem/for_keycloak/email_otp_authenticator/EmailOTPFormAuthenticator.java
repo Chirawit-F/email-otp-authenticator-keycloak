@@ -3,6 +3,8 @@ package ch.jacem.for_keycloak.email_otp_authenticator;
 import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
 
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -34,6 +36,8 @@ public class EmailOTPFormAuthenticator extends AbstractUsernameFormAuthenticator
     public static final String AUTH_NOTE_OTP_KEY = "for-kc-email-otp-key";
     public static final String AUTH_NOTE_OTP_CREATED_AT = "for-kc-email-otp-created-at";
     public static final String AUTH_NOTE_REF_CODE = "for-kc-email-otp-ref-code";
+
+    public static final String USER_ATTR_RATE_LIMIT_TIMESTAMPS = "email_otp_request_timestamps";
 
     public static final String OTP_FORM_TEMPLATE_NAME = "login-email-otp.ftl";
     public static final String OTP_FORM_CODE_INPUT_NAME = "email-otp";
@@ -68,6 +72,27 @@ public class EmailOTPFormAuthenticator extends AbstractUsernameFormAuthenticator
 
         if (inputData.containsKey(OTP_FORM_RESEND_ACTION_NAME)) {
             logger.debug("Resending a new OTP");
+
+            // Check rate limit before resending
+            if (this.isRateLimited(context)) {
+                long waitSeconds = this.getWaitTimeSeconds(context);
+                int waitMinutes = (int) (waitSeconds / 60);
+                int waitSecondsRemainder = (int) (waitSeconds % 60);
+
+                LoginFormsProvider form = context.form()
+                    .setExecution(context.getExecution().getId())
+                    .setAttribute("waitTimeMinutes", waitMinutes)
+                    .setAttribute("waitTimeSeconds", waitSecondsRemainder);
+
+                form.setError("emailOtpRateLimitExceeded", String.valueOf(waitMinutes), String.valueOf(waitSecondsRemainder));
+                this.addRefCodeToForm(context, form);
+
+                context.failureChallenge(
+                    AuthenticationFlowError.INVALID_USER,
+                    createLoginForm(form)
+                );
+                return;
+            }
 
             // Regenerate and resend a new OTP
             this.generateOtp(context, true);
@@ -126,6 +151,27 @@ public class EmailOTPFormAuthenticator extends AbstractUsernameFormAuthenticator
 
     @Override
     public void authenticate(AuthenticationFlowContext context) {
+        // Check rate limit before generating OTP
+        if (this.isRateLimited(context)) {
+            long waitSeconds = this.getWaitTimeSeconds(context);
+            int waitMinutes = (int) (waitSeconds / 60);
+            int waitSecondsRemainder = (int) (waitSeconds % 60);
+
+            LoginFormsProvider form = context.form()
+                .setExecution(context.getExecution().getId())
+                .setAttribute("waitTimeMinutes", waitMinutes)
+                .setAttribute("waitTimeSeconds", waitSecondsRemainder);
+
+            form.setError("emailOtpRateLimitExceeded", String.valueOf(waitMinutes), String.valueOf(waitSecondsRemainder));
+            this.addRefCodeToForm(context, form);
+
+            context.failureChallenge(
+                AuthenticationFlowError.INVALID_USER,
+                createLoginForm(form)
+            );
+            return;
+        }
+
         this.generateOtp(context, false);
 
         context.challenge(
@@ -215,6 +261,9 @@ public class EmailOTPFormAuthenticator extends AbstractUsernameFormAuthenticator
         // Generate and store reference code
         String refCode = this.generateRefCode(context);
         context.getAuthenticationSession().setAuthNote(AUTH_NOTE_REF_CODE, refCode);
+
+        // Record this OTP request for rate limiting
+        this.recordOtpRequest(context);
 
         this.sendGeneratedOtp(context);
 
@@ -308,6 +357,93 @@ public class EmailOTPFormAuthenticator extends AbstractUsernameFormAuthenticator
         if (refCode != null && !refCode.isEmpty()) {
             form.setAttribute("refCode", refCode);
         }
+    }
+
+    private boolean isRateLimited(AuthenticationFlowContext context) {
+        int maxRequests = ConfigHelper.getRateLimitMaxRequests(context);
+
+        // Rate limiting disabled if maxRequests is 0
+        if (maxRequests <= 0) {
+            return false;
+        }
+
+        int windowSeconds = ConfigHelper.getRateLimitWindowSeconds(context);
+        UserModel user = context.getUser();
+
+        List<Long> timestamps = getRequestTimestamps(user);
+        long now = System.currentTimeMillis() / 1000;
+        long windowStart = now - windowSeconds;
+
+        // Count requests within window
+        long requestsInWindow = timestamps.stream()
+            .filter(ts -> ts > windowStart)
+            .count();
+
+        return requestsInWindow >= maxRequests;
+    }
+
+    private long getWaitTimeSeconds(AuthenticationFlowContext context) {
+        int windowSeconds = ConfigHelper.getRateLimitWindowSeconds(context);
+        UserModel user = context.getUser();
+
+        List<Long> timestamps = getRequestTimestamps(user);
+        long now = System.currentTimeMillis() / 1000;
+        long windowStart = now - windowSeconds;
+
+        // Find oldest timestamp in window
+        long oldestInWindow = timestamps.stream()
+            .filter(ts -> ts > windowStart)
+            .min(Long::compare)
+            .orElse(now);
+
+        // Time until oldest timestamp expires from window
+        return (oldestInWindow + windowSeconds) - now;
+    }
+
+    private List<Long> getRequestTimestamps(UserModel user) {
+        List<String> values = user.getAttributeStream(USER_ATTR_RATE_LIMIT_TIMESTAMPS)
+            .findFirst()
+            .map(v -> Arrays.asList(v.split(",")))
+            .orElse(new ArrayList<>());
+
+        List<Long> timestamps = new ArrayList<>();
+        for (String val : values) {
+            if (!val.isEmpty()) {
+                try {
+                    timestamps.add(Long.parseLong(val.trim()));
+                } catch (NumberFormatException e) {
+                    // Skip invalid entries
+                }
+            }
+        }
+        return timestamps;
+    }
+
+    private void recordOtpRequest(AuthenticationFlowContext context) {
+        int windowSeconds = ConfigHelper.getRateLimitWindowSeconds(context);
+        UserModel user = context.getUser();
+
+        List<Long> timestamps = getRequestTimestamps(user);
+        long now = System.currentTimeMillis() / 1000;
+        long windowStart = now - windowSeconds;
+
+        // Clean up old timestamps and add new one
+        List<Long> validTimestamps = new ArrayList<>();
+        for (Long ts : timestamps) {
+            if (ts > windowStart) {
+                validTimestamps.add(ts);
+            }
+        }
+        validTimestamps.add(now);
+
+        // Convert to comma-separated string
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < validTimestamps.size(); i++) {
+            if (i > 0) sb.append(",");
+            sb.append(validTimestamps.get(i));
+        }
+
+        user.setSingleAttribute(USER_ATTR_RATE_LIMIT_TIMESTAMPS, sb.toString());
     }
 
     @Override
