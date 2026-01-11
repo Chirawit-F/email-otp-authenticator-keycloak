@@ -25,6 +25,14 @@ public class EmailOTPFormAuthenticatorFactory implements AuthenticatorFactory {
     public static final int SETTINGS_DEFAULT_VALUE_CODE_LENGTH = 6;
     public static final String SETTINGS_KEY_CODE_LIFETIME = "code-lifetime";
     public static final int SETTINGS_DEFAULT_VALUE_CODE_LIFETIME = 600; // 10 minutes
+    public static final String SETTINGS_KEY_REF_CODE_LENGTH = "ref-code-length";
+    public static final int SETTINGS_DEFAULT_VALUE_REF_CODE_LENGTH = 6;
+    public static final String SETTINGS_KEY_RATE_LIMIT_MAX_REQUESTS = "rate-limit-max-requests";
+    public static final int SETTINGS_DEFAULT_VALUE_RATE_LIMIT_MAX_REQUESTS = 3;
+    public static final String SETTINGS_KEY_RATE_LIMIT_WINDOW_SECONDS = "rate-limit-window-seconds";
+    public static final int SETTINGS_DEFAULT_VALUE_RATE_LIMIT_WINDOW_SECONDS = 300;
+    public static final String SETTINGS_KEY_MAX_INVALID_ATTEMPTS = "max-invalid-attempts";
+    public static final int SETTINGS_DEFAULT_VALUE_MAX_INVALID_ATTEMPTS = 3;
 
     @Override
     public Authenticator create(KeycloakSession session) {
@@ -114,6 +122,34 @@ public class EmailOTPFormAuthenticatorFactory implements AuthenticatorFactory {
                 // Using STRING_TYPE to keep compatibility with older versions of Keycloak, need to cast this to int
                 ProviderConfigProperty.STRING_TYPE,
                 String.valueOf(SETTINGS_DEFAULT_VALUE_CODE_LIFETIME)
+            ),
+            new ProviderConfigProperty(
+                SETTINGS_KEY_REF_CODE_LENGTH,
+                "Reference Code Length",
+                "The length of the reference code displayed for verification (Default: 6).",
+                ProviderConfigProperty.STRING_TYPE,
+                String.valueOf(SETTINGS_DEFAULT_VALUE_REF_CODE_LENGTH)
+            ),
+            new ProviderConfigProperty(
+                SETTINGS_KEY_RATE_LIMIT_MAX_REQUESTS,
+                "Rate Limit - Max Requests",
+                "Maximum OTP requests allowed within the time window (Default: 3). Set to 0 to disable.",
+                ProviderConfigProperty.STRING_TYPE,
+                String.valueOf(SETTINGS_DEFAULT_VALUE_RATE_LIMIT_MAX_REQUESTS)
+            ),
+            new ProviderConfigProperty(
+                SETTINGS_KEY_RATE_LIMIT_WINDOW_SECONDS,
+                "Rate Limit - Time Window (seconds)",
+                "Time window in seconds for rate limiting (Default: 300 = 5 minutes).",
+                ProviderConfigProperty.STRING_TYPE,
+                String.valueOf(SETTINGS_DEFAULT_VALUE_RATE_LIMIT_WINDOW_SECONDS)
+            ),
+            new ProviderConfigProperty(
+                SETTINGS_KEY_MAX_INVALID_ATTEMPTS,
+                "Max Invalid Attempts",
+                "Maximum wrong OTP entries before terminating flow (Default: 3). User must login again. Set to 0 to disable.",
+                ProviderConfigProperty.STRING_TYPE,
+                String.valueOf(SETTINGS_DEFAULT_VALUE_MAX_INVALID_ATTEMPTS)
             )
         );
     }
