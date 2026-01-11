@@ -20,6 +20,7 @@ import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.RealmModel;
 import org.keycloak.models.RoleModel;
 import org.keycloak.models.UserModel;
+import org.keycloak.models.utils.FormMessage;
 import org.keycloak.services.messages.Messages;
 import org.keycloak.sessions.AuthenticationSessionModel;
 
@@ -32,6 +33,7 @@ public class EmailOTPFormAuthenticator extends AbstractUsernameFormAuthenticator
 {
     public static final String AUTH_NOTE_OTP_KEY = "for-kc-email-otp-key";
     public static final String AUTH_NOTE_OTP_CREATED_AT = "for-kc-email-otp-created-at";
+    public static final String AUTH_NOTE_REF_CODE = "for-kc-email-otp-ref-code";
 
     public static final String OTP_FORM_TEMPLATE_NAME = "login-email-otp.ftl";
     public static final String OTP_FORM_CODE_INPUT_NAME = "email-otp";
@@ -114,6 +116,7 @@ public class EmailOTPFormAuthenticator extends AbstractUsernameFormAuthenticator
 
         // OTP is correct
         authenticationSession.removeAuthNote(AUTH_NOTE_OTP_KEY);
+        authenticationSession.removeAuthNote(AUTH_NOTE_REF_CODE);
         if (!authenticationSession.getAuthenticatedUser().isEmailVerified()) {
             authenticationSession.getAuthenticatedUser().setEmailVerified(true);
         }
@@ -209,6 +212,10 @@ public class EmailOTPFormAuthenticator extends AbstractUsernameFormAuthenticator
         context.getAuthenticationSession().setAuthNote(AUTH_NOTE_OTP_CREATED_AT, String.valueOf(System.currentTimeMillis() / 1000));
         context.getAuthenticationSession().setAuthNote(AUTH_NOTE_OTP_KEY, otp);
 
+        // Generate and store reference code
+        String refCode = this.generateRefCode(context);
+        context.getAuthenticationSession().setAuthNote(AUTH_NOTE_REF_CODE, refCode);
+
         this.sendGeneratedOtp(context);
 
         return otp;
@@ -249,6 +256,9 @@ public class EmailOTPFormAuthenticator extends AbstractUsernameFormAuthenticator
             attributes.put("otp", otp);
             attributes.put("ttl", ConfigHelper.getOtpLifetime(context));
 
+            String refCode = context.getAuthenticationSession().getAuthNote(AUTH_NOTE_REF_CODE);
+            attributes.put("refCode", refCode);
+
             context.getSession()
                 .getProvider(EmailTemplateProvider.class)
                 .setRealm(context.getRealm())
@@ -277,5 +287,45 @@ public class EmailOTPFormAuthenticator extends AbstractUsernameFormAuthenticator
         long now = System.currentTimeMillis() / 1000;
 
         return ((now - lifetime) > createdAt);
+    }
+
+    private String generateRefCode(AuthenticationFlowContext context) {
+        // RefCode uses same alphabet as OTP for consistency
+        String alphabet = EmailOTPFormAuthenticatorFactory.SETTINGS_DEFAULT_VALUE_CODE_ALPHABET;
+        int length = ConfigHelper.getRefCodeLength(context);
+
+        SecureRandom secureRandom = new SecureRandom();
+        StringBuilder refCodeBuilder = new StringBuilder(length);
+        for (int i = 0; i < length; i++) {
+            refCodeBuilder.append(alphabet.charAt(secureRandom.nextInt(alphabet.length())));
+        }
+
+        return refCodeBuilder.toString();
+    }
+
+    private void addRefCodeToForm(AuthenticationFlowContext context, LoginFormsProvider form) {
+        String refCode = context.getAuthenticationSession().getAuthNote(AUTH_NOTE_REF_CODE);
+        if (refCode != null && !refCode.isEmpty()) {
+            form.setAttribute("refCode", refCode);
+        }
+    }
+
+    @Override
+    protected Response challenge(AuthenticationFlowContext context, String error, String field) {
+        LoginFormsProvider form = context.form()
+            .setExecution(context.getExecution().getId());
+
+        if (error != null) {
+            if (field != null) {
+                form.addError(new FormMessage(field, error));
+            } else {
+                form.setError(error);
+            }
+        }
+
+        // Add refCode to form
+        this.addRefCodeToForm(context, form);
+
+        return createLoginForm(form);
     }
 }
