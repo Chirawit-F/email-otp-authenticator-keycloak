@@ -39,6 +39,8 @@ public class EmailOTPFormAuthenticator extends AbstractUsernameFormAuthenticator
 
     public static final String USER_ATTR_RATE_LIMIT_TIMESTAMPS = "email_otp_request_timestamps";
 
+    public static final String AUTH_NOTE_INVALID_ATTEMPTS = "for-kc-email-otp-invalid-attempts";
+
     public static final String OTP_FORM_TEMPLATE_NAME = "login-email-otp.ftl";
     public static final String OTP_FORM_CODE_INPUT_NAME = "email-otp";
     public static final String OTP_FORM_RESEND_ACTION_NAME = "resend-email";
@@ -116,10 +118,45 @@ public class EmailOTPFormAuthenticator extends AbstractUsernameFormAuthenticator
         }
 
         if (otp.isEmpty() || !otp.equals(authenticationSession.getAuthNote(AUTH_NOTE_OTP_KEY))) {
+            int maxAttempts = ConfigHelper.getMaxInvalidAttempts(context);
+            this.incrementInvalidAttempts(context);
+            int currentAttempts = this.getInvalidAttempts(context);
+
+            // Check if max attempts exceeded (only if feature is enabled)
+            if (maxAttempts > 0 && currentAttempts >= maxAttempts) {
+                logger.debug("Max invalid attempts reached, resetting flow");
+                context.getEvent().user(user).error(Errors.INVALID_USER_CREDENTIALS);
+
+                // Clear all auth notes before resetting
+                authenticationSession.removeAuthNote(AUTH_NOTE_OTP_KEY);
+                authenticationSession.removeAuthNote(AUTH_NOTE_REF_CODE);
+                authenticationSession.removeAuthNote(AUTH_NOTE_INVALID_ATTEMPTS);
+
+                // Reset the entire flow - user must start over
+                context.resetFlow();
+                return;
+            }
+
+            // Show error with remaining attempts
+            int remainingAttempts = maxAttempts > 0 ? (maxAttempts - currentAttempts) : -1;
+
             context.getEvent().user(user).error(Errors.INVALID_USER_CREDENTIALS);
+
+            LoginFormsProvider form = context.form()
+                .setExecution(context.getExecution().getId());
+
+            if (remainingAttempts > 0) {
+                form.setAttribute("remainingAttempts", remainingAttempts);
+                form.addError(new FormMessage(OTP_FORM_CODE_INPUT_NAME, "emailOtpInvalidCodeWithAttempts", String.valueOf(remainingAttempts)));
+            } else {
+                form.addError(new FormMessage(OTP_FORM_CODE_INPUT_NAME, "errorInvalidEmailOtp"));
+            }
+
+            this.addRefCodeToForm(context, form);
+
             context.failureChallenge(
                 AuthenticationFlowError.INVALID_CREDENTIALS,
-                this.challenge(context, "errorInvalidEmailOtp", OTP_FORM_CODE_INPUT_NAME)
+                createLoginForm(form)
             );
 
             return;
@@ -142,6 +179,7 @@ public class EmailOTPFormAuthenticator extends AbstractUsernameFormAuthenticator
         // OTP is correct
         authenticationSession.removeAuthNote(AUTH_NOTE_OTP_KEY);
         authenticationSession.removeAuthNote(AUTH_NOTE_REF_CODE);
+        this.clearInvalidAttempts(context);
         if (!authenticationSession.getAuthenticatedUser().isEmailVerified()) {
             authenticationSession.getAuthenticatedUser().setEmailVerified(true);
         }
@@ -444,6 +482,27 @@ public class EmailOTPFormAuthenticator extends AbstractUsernameFormAuthenticator
         }
 
         user.setSingleAttribute(USER_ATTR_RATE_LIMIT_TIMESTAMPS, sb.toString());
+    }
+
+    private int getInvalidAttempts(AuthenticationFlowContext context) {
+        String attemptsStr = context.getAuthenticationSession().getAuthNote(AUTH_NOTE_INVALID_ATTEMPTS);
+        if (attemptsStr == null || attemptsStr.isEmpty()) {
+            return 0;
+        }
+        try {
+            return Integer.parseInt(attemptsStr);
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    private void incrementInvalidAttempts(AuthenticationFlowContext context) {
+        int attempts = getInvalidAttempts(context) + 1;
+        context.getAuthenticationSession().setAuthNote(AUTH_NOTE_INVALID_ATTEMPTS, String.valueOf(attempts));
+    }
+
+    private void clearInvalidAttempts(AuthenticationFlowContext context) {
+        context.getAuthenticationSession().removeAuthNote(AUTH_NOTE_INVALID_ATTEMPTS);
     }
 
     @Override
