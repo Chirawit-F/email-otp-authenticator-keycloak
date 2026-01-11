@@ -5,6 +5,17 @@
         ${msg("doLogIn")}
     <#elseif section = "form">
         <form id="kc-otp-login-form" class="${properties.kcFormClass!}" onsubmit="login.disabled = true; return true;" action="${url.loginAction}" method="post">
+            <#if refCode??>
+                <div class="${properties.kcFormGroupClass!}">
+                    <div class="${properties.kcLabelWrapperClass!}">
+                        <label class="${properties.kcLabelClass!}">${msg("emailOtpRefCode")}</label>
+                    </div>
+                    <div class="${properties.kcInputWrapperClass!}">
+                        <span class="pf-c-form-control" style="background-color: #f0f0f0; padding: 0.5rem; font-family: monospace; font-size: 1.2em; letter-spacing: 0.2em;">${refCode}</span>
+                    </div>
+                </div>
+            </#if>
+
             <div class="${properties.kcFormGroupClass!}">
                 <div class="${properties.kcLabelWrapperClass!}">
                     <label for="email-otp" class="${properties.kcLabelClass!}">${msg("loginEmailOtp")}</label>
