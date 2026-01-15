@@ -395,6 +395,15 @@ public class EmailOTPFormAuthenticator extends AbstractUsernameFormAuthenticator
         if (refCode != null && !refCode.isEmpty()) {
             form.setAttribute("refCode", refCode);
         }
+
+        // Add email for display (theme can mask it)
+        UserModel user = context.getUser();
+        if (user != null && user.getEmail() != null) {
+            form.setAttribute("email", user.getEmail());
+        }
+
+        // Add TTL for countdown timer
+        form.setAttribute("ttl", ConfigHelper.getOtpLifetime(context));
     }
 
     private boolean isRateLimited(AuthenticationFlowContext context) {
